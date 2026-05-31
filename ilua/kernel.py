@@ -325,8 +325,31 @@ class ILuaKernel(KernelBase):
 
         defer.returnValue({'status': result['payload']})
 
+    def _magic_completions(self, prefix):
+        """Return (matches, types) for magic commands starting with prefix."""
+        matches = sorted(
+            '%' + name for name in self._MAGIC_HELP if name.startswith(prefix)
+        )
+        types = [{"type": "magic"} for _ in matches]
+        return matches, types
+
     @defer.inlineCallbacks
     def do_complete(self, code, cursor_pos):
+        text = code[:cursor_pos]
+
+        # Pure magic completion: user typed '%' optionally followed by partial name
+        if text.lstrip().startswith('%'):
+            prefix = text.lstrip()[1:]
+            matches, types = self._magic_completions(prefix)
+            cursor_start = cursor_pos - len(prefix) - 1  # back to include '%'
+            defer.returnValue({
+                'matches': matches,
+                'cursor_start': cursor_start,
+                'cursor_end': cursor_pos,
+                'metadata': {'_jupyter_types_experimental': types},
+                'status': 'ok'
+            })
+
         last_obj = self.inspector.get_last_obj(code, cursor_pos)
         initial = last_obj.pop() if last_obj and last_obj[-1] not in ".:" \
                   else ""
@@ -351,6 +374,16 @@ class ILuaKernel(KernelBase):
             {"type": name_to_type.get(m[len(matches_prefix):], "")}
             for m in matches_full
         ]
+
+        # Mix in magic completions at top level (no object chain)
+        if not breadcrumbs and not matches_prefix:
+            magic_matches, magic_types = self._magic_completions(initial)
+            matches_full = sorted(matches_full + magic_matches)
+            experimental_types = [
+                {"type": "magic"} if m.startswith('%') else
+                {"type": name_to_type.get(m[len(matches_prefix):], "")}
+                for m in matches_full
+            ]
 
         cursor_start = cursor_pos - sum([len(s) for s in breadcrumbs]) \
                             - len(breadcrumbs) - len(initial)
