@@ -125,9 +125,56 @@ class ILuaKernel(KernelBase):
                 self.language_info['version'] = version[0]
                 self.log.debug("Lua version is {version}", version=version[0])
 
+    def _ok(self):
+        return {'status': 'ok', 'execution_count': self.execution_count,
+                'payload': [], 'user_expressions': {}}
+
+    def _handle_magic(self, code, silent):
+        parts = code[1:].split(None, 1)
+        cmd = parts[0].lower() if parts else ''
+        arg = parts[1].strip() if len(parts) > 1 else ''
+
+        def msg(text):
+            if not silent:
+                self.send_update("stream", {"name": "stdout", "text": text})
+
+        if cmd == 'logstart':
+            filename = arg or 'ilua_session.log'
+            if self._log_file:
+                self._log_file.close()
+            self._log_file = open(filename, 'a', encoding='utf-8')
+            msg("Logging to {}\n".format(filename))
+            return self._ok()
+
+        if cmd == 'logstop':
+            if self._log_file:
+                self._log_file.close()
+                self._log_file = None
+                msg("Logging stopped\n")
+            else:
+                msg("No active log\n")
+            return self._ok()
+
+        if cmd == 'logstate':
+            if self._log_file:
+                msg("Logging to {}\n".format(self._log_file.name))
+            else:
+                msg("No active log\n")
+            return self._ok()
+
+        self.send_update("stream", {"name": "stderr",
+                                    "text": "Unknown magic: %{}\n".format(cmd)})
+        return {'status': 'error', 'execution_count': self.execution_count,
+                'traceback': [], 'ename': 'n/a',
+                'evalue': "Unknown magic: %{}".format(cmd)}
+
     @defer.inlineCallbacks
     def do_execute(self, code, silent, store_history=True, user_expressions=None,
                    allow_stdin=False):
+        if code.strip().startswith('%'):
+            defer.returnValue(self._handle_magic(code.strip(), silent))
+            return
+
         result = yield self.proto.sendRequest({"type": "execute",
                                               "payload": code})
 
