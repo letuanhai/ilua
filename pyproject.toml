@@ -5,3 +5,39 @@ build-backend = "setuptools.build_meta"
 [tool.setuptools_scm]
 write_to = "ilua/version.py"
 write_to_template = "__version__ = \"{version}\"\n"
+
+[project]
+name = "ilua"
+description = "Portable Lua kernel for Jupyter"
+license = { text = "GPLv2" }
+readme = "README.md"
+keywords = ["lua", "interactive", "console", "jupyter", "kernel"]
+requires-python = ">=3.8"
+dynamic = ["version"]
+dependencies = [
+    "twisted",
+    "termcolor",
+    "pygments",
+    "txzmq",
+    "jupyter_core",
+    "jupyter_console",
+    "pywin32; sys_platform == 'win32'",
+]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "Topic :: Software Development :: Interpreters",
+    "License :: OSI Approved :: GNU General Public License v2 (GPLv2)",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+]
+
+[[project.authors]]
+name = "Guy Sviry"
+email = "sviryguy@gmail.com"
+
+[project.urls]
+Homepage = "https://github.com/guysv/ilua"
+
+[project.scripts]
+ilua = "ilua.consoleapp:main"

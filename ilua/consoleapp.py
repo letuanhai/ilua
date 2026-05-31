@@ -11,8 +11,18 @@ with jupyter-console. This is the `ilua` entry point
 
 import os
 from jupyter_console.app import ZMQTerminalIPythonApp
+from jupyter_client.kernelspec import KernelSpecManager
 
 from .app import ILuaApp
+
+_KERNEL_SPEC_DIR = os.path.normpath(
+    os.path.join(os.path.dirname(__file__), "defaultspec")
+)
+
+def _ensure_kernel_spec():
+    mgr = KernelSpecManager()
+    if "lua" not in mgr.find_kernel_specs():
+        mgr.install_kernel_spec(_KERNEL_SPEC_DIR, kernel_name="lua", user=True)
 
 class ILuaConsoleApp(ILuaApp):
     def run(self):
@@ -34,6 +44,7 @@ class ILuaConsoleApp(ILuaApp):
         ZMQTerminalIPythonApp.launch_instance(argv=['--kernel', 'lua'])
 
 def main():
+    _ensure_kernel_spec()
     ILuaConsoleApp().run()
 
 if __name__ == '__main__':
