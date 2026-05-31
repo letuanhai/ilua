@@ -125,6 +125,35 @@ class ILuaKernel(KernelBase):
                 self.language_info['version'] = version[0]
                 self.log.debug("Lua version is {version}", version=version[0])
 
+    _MAGIC_HELP = {
+        'history': (
+            "%history [-n N] [-o FILE]\n\n"
+            "Show or export command history for the current session.\n\n"
+            "Options:\n"
+            "  -n N      limit to the last N entries\n"
+            "  -o FILE   write commands to FILE instead of printing\n\n"
+            "Examples:\n"
+            "  %history           show all commands this session\n"
+            "  %history -n 20     show last 20 commands\n"
+            "  %history -o s.lua  export session to s.lua\n"
+            "  %history -n 5 -o s.lua\n"
+        ),
+        'logstart': (
+            "%logstart [FILE]\n\n"
+            "Start logging session input and output to FILE.\n"
+            "Defaults to 'ilua_session.log' if FILE is not given.\n"
+            "The file is opened in append mode.\n"
+        ),
+        'logstop': (
+            "%logstop\n\n"
+            "Stop the active logging session.\n"
+        ),
+        'logstate': (
+            "%logstate\n\n"
+            "Show the path of the currently active log file, if any.\n"
+        ),
+    }
+
     def _ok(self):
         return {'status': 'ok', 'execution_count': self.execution_count,
                 'payload': [], 'user_expressions': {}}
@@ -138,6 +167,19 @@ class ILuaKernel(KernelBase):
     def _handle_magic(self, code, silent):
         parts = code[1:].split()
         cmd = parts[0].lower() if parts else ''
+
+        # strip trailing ? and treat as help request
+        if cmd.endswith('?'):
+            cmd = cmd.rstrip('?')
+            help_text = self._MAGIC_HELP.get(cmd)
+            if help_text:
+                if not silent:
+                    self.send_update("stream", {"name": "stdout",
+                                                "text": help_text})
+            else:
+                self.send_update("stream", {"name": "stderr",
+                                            "text": "No help for %{}\n".format(cmd)})
+            defer.returnValue(self._ok())
 
         def out(text):
             if not silent:
