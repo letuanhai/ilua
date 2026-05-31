@@ -68,6 +68,28 @@ class HistoryManager(object):
                                    ORDER BY session, line
                                    LIMIT ?
                                 """, (lines_back,))
+
+    def get_history(self, session=None, n=None):
+        """
+        Get history entries for a session (default: current).
+        Optionally limit to the last n entries.
+        Returns list of (line, source) tuples in ascending order.
+        """
+        if session is None:
+            session = self.session
+        if n is not None:
+            return self.db.runQuery(
+                """SELECT line, source FROM (
+                       SELECT line, source FROM history
+                       WHERE session=?
+                       ORDER BY line DESC LIMIT ?
+                   ) ORDER BY line""",
+                (session, n)
+            )
+        return self.db.runQuery(
+            "SELECT line, source FROM history WHERE session=? ORDER BY line",
+            (session,)
+        )
     
     @defer.inlineCallbacks
     def append(self, source, line):

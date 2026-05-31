@@ -129,50 +129,100 @@ class ILuaKernel(KernelBase):
         return {'status': 'ok', 'execution_count': self.execution_count,
                 'payload': [], 'user_expressions': {}}
 
-    def _handle_magic(self, code, silent):
-        parts = code[1:].split(None, 1)
-        cmd = parts[0].lower() if parts else ''
-        arg = parts[1].strip() if len(parts) > 1 else ''
+    def _err(self, msg):
+        self.send_update("stream", {"name": "stderr", "text": msg + "\n"})
+        return {'status': 'error', 'execution_count': self.execution_count,
+                'traceback': [], 'ename': 'n/a', 'evalue': msg}
 
-        def msg(text):
+    @defer.inlineCallbacks
+    def _handle_magic(self, code, silent):
+        parts = code[1:].split()
+        cmd = parts[0].lower() if parts else ''
+
+        def out(text):
             if not silent:
                 self.send_update("stream", {"name": "stdout", "text": text})
 
+        # --- logging commands ---
         if cmd == 'logstart':
-            filename = arg or 'ilua_session.log'
+            args = parts[1:]
+            filename = next((a for a in args if not a.startswith('-')),
+                            'ilua_session.log')
             if self._log_file:
                 self._log_file.close()
             self._log_file = open(filename, 'a', encoding='utf-8')
-            msg("Logging to {}\n".format(filename))
-            return self._ok()
+            out("Logging to {}\n".format(filename))
+            defer.returnValue(self._ok())
 
         if cmd == 'logstop':
             if self._log_file:
                 self._log_file.close()
                 self._log_file = None
-                msg("Logging stopped\n")
+                out("Logging stopped\n")
             else:
-                msg("No active log\n")
-            return self._ok()
+                out("No active log\n")
+            defer.returnValue(self._ok())
 
         if cmd == 'logstate':
             if self._log_file:
-                msg("Logging to {}\n".format(self._log_file.name))
+                out("Logging to {}\n".format(self._log_file.name))
             else:
-                msg("No active log\n")
-            return self._ok()
+                out("No active log\n")
+            defer.returnValue(self._ok())
 
-        self.send_update("stream", {"name": "stderr",
-                                    "text": "Unknown magic: %{}\n".format(cmd)})
-        return {'status': 'error', 'execution_count': self.execution_count,
-                'traceback': [], 'ename': 'n/a',
-                'evalue': "Unknown magic: %{}".format(cmd)}
+        # --- history command ---
+        if cmd == 'history':
+            args = parts[1:]
+            # parse: %history [-n N] [-o FILE]
+            n = None
+            outfile = None
+            i = 0
+            while i < len(args):
+                if args[i] == '-n' and i + 1 < len(args):
+                    try:
+                        n = int(args[i + 1])
+                    except ValueError:
+                        defer.returnValue(self._err("Invalid number: " + args[i+1]))
+                    i += 2
+                elif args[i] == '-o' and i + 1 < len(args):
+                    outfile = args[i + 1]
+                    i += 2
+                elif args[i].lstrip('-').isdigit():
+                    n = int(args[i].lstrip('-'))
+                    i += 1
+                else:
+                    defer.returnValue(
+                        self._err("Usage: %history [-n N] [-o FILE]"))
+                i = i  # satisfy linter; loop increment already done
+
+            rows = yield self.history_manager.get_history(n=n)
+
+            if outfile:
+                with open(outfile, 'w', encoding='utf-8') as f:
+                    for _, source in rows:
+                        f.write(source)
+                        if not source.endswith('\n'):
+                            f.write('\n')
+                out("History written to {}\n".format(outfile))
+            else:
+                lines = u"".join(
+                    u"{:>4}: {}\n".format(lineno, source.rstrip('\n')
+                                          .replace('\n', '\n      '))
+                    for lineno, source in rows
+                )
+                out(lines or "(no history)\n")
+
+            defer.returnValue(self._ok())
+
+        # --- unknown ---
+        defer.returnValue(self._err("Unknown magic: %{}".format(cmd)))
 
     @defer.inlineCallbacks
     def do_execute(self, code, silent, store_history=True, user_expressions=None,
                    allow_stdin=False):
         if code.strip().startswith('%'):
-            defer.returnValue(self._handle_magic(code.strip(), silent))
+            result = yield self._handle_magic(code.strip(), silent)
+            defer.returnValue(result)
             return
 
         result = yield self.proto.sendRequest({"type": "execute",
