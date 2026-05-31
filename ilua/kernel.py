@@ -197,22 +197,32 @@ class ILuaKernel(KernelBase):
         result = yield self.proto.sendRequest({
             "type": "complete",
             "payload": {
-                'breadcrumbs':breadcrumbs,
+                'breadcrumbs': breadcrumbs,
                 'only_methods': only_methods}})
 
-        matches = filter(lambda x: x.startswith(initial), result['payload'])
+        payload = result['payload']
+        names = payload['names']
+        name_to_type = dict(zip(names, payload['types']))
+
         matches_prefix = "".join(last_obj)
-        matches_full = [matches_prefix + m for m in matches]
+        filtered = [n for n in names if n.startswith(initial)]
+        matches_full = sorted(set(matches_prefix + n for n in filtered))
+
+        experimental_types = [
+            {"type": name_to_type.get(m[len(matches_prefix):], "")}
+            for m in matches_full
+        ]
 
         cursor_start = cursor_pos - sum([len(s) for s in breadcrumbs]) \
                             - len(breadcrumbs) - len(initial)
-        cursor_end = cursor_pos
 
         defer.returnValue({
-            'matches': sorted(list(set(matches_full))),
-            'cursor_start':cursor_start,
-            'cursor_end':cursor_end,
-            'metadata':{},
+            'matches': matches_full,
+            'cursor_start': cursor_start,
+            'cursor_end': cursor_pos,
+            'metadata': {
+                '_jupyter_types_experimental': experimental_types
+            },
             'status': 'ok'
         })
 

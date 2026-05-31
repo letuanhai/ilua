@@ -98,33 +98,35 @@ local function handle_is_complete(code)
     end
 end
 
-local function get_matches(obj, matches, only_methods)
+local function get_matches(obj, names, types, only_methods)
     if type(obj) == 'table' then
         for key, value in pairs(obj) do
             if type(key) == 'string' and
                     key:match("^[_a-zA-Z][_a-zA-Z0-9]*$") and
                     (not only_methods or type(value) == 'function') then
-                matches[#matches+1] = key
+                names[#names+1] = key
+                types[#types+1] = type(value)
             end
         end
     end
     local mt = getmetatable(obj)
     if mt and mt.__index then
-        get_matches(mt.__index, matches, only_methods)
+        get_matches(mt.__index, names, types, only_methods)
     end
 end
 
 local function handle_complete(breadcrumbs, only_methods)
     local subject_obj = dynamic_env
-    local matches = {}
+    local names = {}
+    local types = {}
     for _, key in ipairs(breadcrumbs) do
         subject_obj = subject_obj[key]
         if not subject_obj then
-            return matches
+            return {names=names, types=types}
         end
     end
-    get_matches(subject_obj, matches, methods_only)
-    return matches
+    get_matches(subject_obj, names, types, only_methods)
+    return {names=names, types=types}
 end
 
 local function handle_info(breadcrumbs)
@@ -184,11 +186,11 @@ while true do
             payload = status
         }))
     elseif message.type == 'complete' then
-        local matches = handle_complete(message.payload.breadcrumbs,
-                                        message.payload.only_methods)
+        local result = handle_complete(message.payload.breadcrumbs,
+                                       message.payload.only_methods)
         netstring.write(ret_pipe, json.encode({
             type = "complete",
-            payload = matches
+            payload = result
         }))
     elseif message.type == 'info' then
         local info = handle_info(message.payload.breadcrumbs)
