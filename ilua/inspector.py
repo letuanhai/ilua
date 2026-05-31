@@ -39,7 +39,7 @@ class Inspector(object):
 
         all_tokens = list(self.lexer.get_tokens_unprocessed(code[:cursor_pos]))
 
-        unordered_tokens = takewhile(lambda x: x[1] == token.Name or
+        unordered_tokens = takewhile(lambda x: x[1] in token.Name or
                                                x[2] in '.:',
                                                all_tokens[::-1])
         unordered_tokens = list(unordered_tokens)
@@ -48,9 +48,9 @@ class Inspector(object):
         if not unordered_tokens:
             return last_obj
         
-        now_name = token.Name == unordered_tokens[0][1]
+        now_name = unordered_tokens[0][1] in token.Name
         for i, t in enumerate(unordered_tokens):
-            if now_name and t[1] == token.Name:
+            if now_name and t[1] in token.Name:
                 last_obj.insert(0, t[2])
             elif not now_name and i < 2 and t[2] == ":":
                 last_obj.insert(0, t[2])

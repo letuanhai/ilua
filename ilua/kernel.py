@@ -15,7 +15,7 @@ import json
 import os
 import re
 
-from distutils.spawn import find_executable
+from shutil import which as find_executable
 
 if os.name == 'nt':
     # pylint: disable=E0401
