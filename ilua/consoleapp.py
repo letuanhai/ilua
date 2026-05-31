@@ -34,8 +34,9 @@ class ILuaConsoleApp(ILuaApp):
         cli_args = vars(self.parser.parse_args())
 
         os.environ.update({
-            self.env_var_prefix + key.upper(): cli_args[key]
+            self.env_var_prefix + key.upper(): str(cli_args[key])
             for key in cli_args
+            if cli_args[key] is not None
         })
 
         # HACK: passing arguments to jupyter_console via command line

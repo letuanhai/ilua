@@ -19,6 +19,9 @@ class ILuaApp(AppBase):
                                                            'lua'),
                                  help="Lua interpreter to use for code "
                                       "evaluations")
+        self.parser.add_argument("--log", metavar="FILE",
+                                 default=self._get_default("LOG", None),
+                                 help="Save session input/output to FILE")
 
 def main():
     ILuaApp().run()

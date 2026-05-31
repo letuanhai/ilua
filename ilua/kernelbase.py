@@ -50,7 +50,7 @@ class KernelBase(object):
 
     log = Logger()
 
-    def __init__(self, connection_props, reactor=None, *args, **kwargs):
+    def __init__(self, connection_props, reactor=None, log=None, *args, **kwargs):
         """
         
         :param connection_props: Connection properties dictionary, built
@@ -66,6 +66,7 @@ class KernelBase(object):
             from twisted.internet import reactor
         self.reactor = reactor
         self.connection_props = connection_props
+        self._log_file = open(log, 'a', encoding='utf-8') if log else None
 
         self.history_manager = history.HistoryManager(self.get_history_path())
 
@@ -173,6 +174,14 @@ class KernelBase(object):
             elif msg_type == 'execute_request':
                 resp_type = "execute_reply"
                 self.execution_count += 1
+                if self._log_file:
+                    self._log_file.write(
+                        u"\nIn [{}]: {}\n".format(
+                            self.execution_count,
+                            msg['content']['code'].replace('\n', '\n' + ' ' * 10)
+                        )
+                    )
+                    self._log_file.flush()
                 self.history_manager.append(msg['content']['code'],
                                             self.execution_count)
 
@@ -442,12 +451,25 @@ class KernelBase(object):
         """
         Send messages on the IOPub socket such
         as execution_result or (out/err) stream
-        
+
         :param msg_type: type of IOPub message
         :type msg_type: string
         :param content: message content
         :type content: dict
         """
+        if self._log_file:
+            if msg_type == 'stream':
+                self._log_file.write(content['text'])
+                self._log_file.flush()
+            elif msg_type == 'execute_result':
+                self._log_file.write(u"Out[{}]: {}\n".format(
+                    content['execution_count'],
+                    content['data'].get('text/plain', '')
+                ))
+                self._log_file.flush()
+            elif msg_type == 'error':
+                self._log_file.write(u"Error: {}\n".format(content['evalue']))
+                self._log_file.flush()
         msg = self.message_manager.build(msg_type, content, self.curr_parent)
         self.iopub_sock.publish(msg)
     
