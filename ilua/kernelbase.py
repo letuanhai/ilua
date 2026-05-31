@@ -179,7 +179,8 @@ class KernelBase(object):
                 self.send_update("execute_input",
                                  {'code': msg['content']['code'],
                                  'execution_count': self.execution_count})
-                if msg['content']['code'].endswith("?"):
+                if msg['content']['code'].endswith("?") and \
+                        not msg['content']['code'].strip().startswith('%'):
                     # Altough inspection requests exist, frontends does not
                     # seem to send them. Instead, the kernel is in charge of
                     # deciding when to return an inspection. When this happens,

@@ -125,9 +125,114 @@ class ILuaKernel(KernelBase):
                 self.language_info['version'] = version[0]
                 self.log.debug("Lua version is {version}", version=version[0])
 
+    _MAGIC_HELP = {
+        'history': (
+            "%history [-n N] [-o FILE]\n\n"
+            "Show or export command history for the current session.\n\n"
+            "Options:\n"
+            "  -n N      limit to the last N entries\n"
+            "  -o FILE   write commands to FILE instead of printing\n\n"
+            "Examples:\n"
+            "  %history           show all commands this session\n"
+            "  %history -n 20     show last 20 commands\n"
+            "  %history -o s.lua  export session to s.lua\n"
+            "  %history -n 5 -o s.lua\n"
+        ),
+    }
+
+    def _ok(self):
+        return {'status': 'ok', 'execution_count': self.execution_count,
+                'payload': [], 'user_expressions': {}}
+
+    def _err(self, msg):
+        self.send_update("stream", {"name": "stderr", "text": msg + "\n"})
+        return {'status': 'error', 'execution_count': self.execution_count,
+                'traceback': [], 'ename': 'n/a', 'evalue': msg}
+
+    @defer.inlineCallbacks
+    def _handle_magic(self, code, silent):
+        parts = code[1:].split()
+        cmd = parts[0].lower() if parts else ''
+
+        # strip trailing ? and treat as help request
+        if cmd.endswith('?'):
+            cmd = cmd.rstrip('?')
+            help_text = self._MAGIC_HELP.get(cmd)
+            if help_text:
+                if not silent:
+                    self.send_update("stream", {"name": "stdout",
+                                                "text": help_text})
+            else:
+                self.send_update("stream", {"name": "stderr",
+                                            "text": "No help for %{}\n".format(cmd)})
+            defer.returnValue(self._ok())
+
+        def out(text):
+            if not silent:
+                self.send_update("stream", {"name": "stdout", "text": text})
+
+        # --- history command ---
+        if cmd == 'history':
+            args = parts[1:]
+            # parse: %history [-n N] [-o FILE]
+            n = None
+            outfile = None
+            i = 0
+            while i < len(args):
+                if args[i] == '-n' and i + 1 < len(args):
+                    try:
+                        n = int(args[i + 1])
+                    except ValueError:
+                        defer.returnValue(self._err("Invalid number: " + args[i+1]))
+                    i += 2
+                elif args[i] == '-o' and i + 1 < len(args):
+                    outfile = args[i + 1]
+                    i += 2
+                elif args[i].lstrip('-').isdigit():
+                    n = int(args[i].lstrip('-'))
+                    i += 1
+                else:
+                    defer.returnValue(
+                        self._err("Usage: %history [-n N] [-o FILE]"))
+
+            rows = yield self.history_manager.get_history(n=n)
+
+            if outfile:
+                with open(outfile, 'w', encoding='utf-8') as f:
+                    for _, source in rows:
+                        f.write(source)
+                        if not source.endswith('\n'):
+                            f.write('\n')
+                out("History written to {}\n".format(outfile))
+            else:
+                lines = u"".join(
+                    u"{:>4}: {}\n".format(lineno, source.rstrip('\n')
+                                          .replace('\n', '\n      '))
+                    for lineno, source in rows
+                )
+                out(lines or "(no history)\n")
+
+            defer.returnValue(self._ok())
+
+        # --- unknown ---
+        defer.returnValue(self._err("Unknown magic: %{}".format(cmd)))
+
+    def _magic_completions(self, prefix):
+        """Return (matches, types) for magic commands starting with prefix."""
+        matches = sorted(
+            '%' + name for name in self._MAGIC_HELP if name.startswith(prefix)
+        )
+        types = [{"type": "magic"} for _ in matches]
+        return matches, types
+
     @defer.inlineCallbacks
     def do_execute(self, code, silent, store_history=True, user_expressions=None,
                    allow_stdin=False):
+        if code.strip().startswith('%'):
+            result = yield self._handle_magic(code.strip(), silent)
+            defer.returnValue(result)
+            return
+
         result = yield self.proto.sendRequest({"type": "execute",
                                               "payload": code})
 
@@ -188,6 +293,21 @@ class ILuaKernel(KernelBase):
 
     @defer.inlineCallbacks
     def do_complete(self, code, cursor_pos):
+        text = code[:cursor_pos]
+
+        # Pure magic completion: user typed '%' optionally followed by partial name
+        if text.lstrip().startswith('%'):
+            prefix = text.lstrip()[1:]
+            matches, types = self._magic_completions(prefix)
+            cursor_start = cursor_pos - len(prefix) - 1  # back to include '%'
+            defer.returnValue({
+                'matches': matches,
+                'cursor_start': cursor_start,
+                'cursor_end': cursor_pos,
+                'metadata': {'_jupyter_types_experimental': types},
+                'status': 'ok'
+            })
+
         last_obj = self.inspector.get_last_obj(code, cursor_pos)
         initial = last_obj.pop() if last_obj and last_obj[-1] not in ".:" \
                   else ""
@@ -212,6 +332,16 @@ class ILuaKernel(KernelBase):
             {"type": name_to_type.get(m[len(matches_prefix):], "")}
             for m in matches_full
         ]
+
+        # Mix in magic completions at top level (no object chain)
+        if not breadcrumbs and not matches_prefix:
+            magic_matches, magic_types = self._magic_completions(initial)
+            matches_full = sorted(matches_full + magic_matches)
+            experimental_types = [
+                {"type": "magic"} if m.startswith('%') else
+                {"type": name_to_type.get(m[len(matches_prefix):], "")}
+                for m in matches_full
+            ]
 
         cursor_start = cursor_pos - sum([len(s) for s in breadcrumbs]) \
                             - len(breadcrumbs) - len(initial)
